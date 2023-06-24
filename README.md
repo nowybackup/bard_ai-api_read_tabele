@@ -1,5 +1,5 @@
 # bard_ai-api_read_tabele
-This script is used with repository "google-bard-api" and have read table in parts for sheets
+This script is used with repository "google-bard-api" and have read table in parts for sheets, and completes the data using the Barda api
 
 You need take and install repository google-bard-api
 </br>
