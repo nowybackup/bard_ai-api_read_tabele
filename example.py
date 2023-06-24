@@ -157,6 +157,31 @@ def format_table(df):
     """
     return df.to_string(index=False)
 
+def set_column_order(df, column_names):
+    """
+    Ustawia kolumny w odpowiedniej kolejności na podstawie podanych nazw.
+
+    Parametry:
+    - df (DataFrame): Obiekt DataFrame.
+    - column_names (list): Lista nazw kolumn w żądanej kolejności.
+
+    Zwraca:
+    - DataFrame: Obiekt DataFrame z ustawionymi kolumnami.
+
+    Example:
+    column_order = ["Number", "Company Name", "Ticker"]
+    df = set_column_order(df, column_order)
+    """
+    # Pobierz nazwy kolumn z obiektu DataFrame
+    existing_columns = df.columns.tolist()
+
+    # Sprawdź, czy podane nazwy kolumn są identyczne z istniejącymi nazwami kolumn
+    if set(column_names) == set(existing_columns):
+        # Ustaw kolumny w żądanej kolejności
+        df = df[column_names]
+
+    return df
+
 def extract_table_data(text, start_column=None, end_column=None, start_row=2, end_row=None,
                        start_row_number=1, row_number_param=None):
     """
@@ -195,6 +220,9 @@ def extract_table_data(text, start_column=None, end_column=None, start_row=2, en
     rows_range = extract_rows_range(table_content, start_row, end_row)
     filtered_rows = filter_rows(rows_range, start_row_number, row_number_param, columns)
     df = create_dataframe(filtered_rows, columns)
+
+    column_order = ["Number", "Company Name", "Ticker"]
+    df = set_column_order(df, column_order)
 
     return format_table(df)
 
