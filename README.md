@@ -44,5 +44,5 @@ Save to file</br>
         data = '\n'.join(data)
     with open(output_file, 'a', encoding='utf-8') as file:
         file.write(data + '\n')</code>
-Errors 
-Problems is with connetion with API Bard, I have error: Networ error: 'choices'
+        
+Errors Problems is with connetion with API Bard, I have error: Networ error: 'choices'
