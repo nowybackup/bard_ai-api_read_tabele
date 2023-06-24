@@ -2,6 +2,7 @@ import urllib.request
 import codecs
 import time
 import json
+import sys
 import re
 import pandas as pd
 import os
@@ -31,11 +32,130 @@ def prepare_requests(lines):
         requests.append(query)
     return requests
 
-class RowNumberParam:
-    """Parametry do filtrowania wierszy"""
-    CONDITION_1 = "Condition_1"
-    CONDITION_2 = "Condition_2"
-    CONDITION_3 = "Condition_3"
+def find_table_indices(lines):
+    """Znajduje indeksy początku i końca tabeli w tekście.
+
+    Parametry:
+    - lines (List[str]): Lista linii tekstu.
+
+    Zwraca:
+    - Tuple[Optional[int], Optional[int]]: Indeks początku i końca tabeli lub None, jeśli tabela nie została znaleziona.
+    """
+    table_start = None
+    table_end = None
+
+    for i, line in enumerate(lines):
+        if "|" in line:
+            table_start = i
+            break
+
+    for i in range(len(lines) - 1, -1, -1):
+        if "|" in lines[i]:
+            table_end = i
+            break
+
+    return table_start, table_end
+
+def extract_table_content(lines, table_start, table_end):
+    """Ekstrahuje zawartość tabeli z listy linii tekstu.
+
+    Parametry:
+    - lines (List[str]): Lista linii tekstu.
+    - table_start (Optional[int]): Indeks początku tabeli.
+    - table_end (Optional[int]): Indeks końca tabeli.
+
+    Zwraca:
+    - List[str]: Lista linii zawierających treść tabeli.
+    """
+    if table_start is None or table_end is None:
+        return []
+
+    table_content = [line.strip() for line in lines[table_start:table_end + 1] if line.strip()]
+    return table_content
+
+def extract_columns(header_row):
+    """
+    Ekstrahuje nazwy kolumn z wiersza nagłówka.
+
+    Parametry:
+    - header_row (str): Wiersz nagłówka.
+
+    Zwraca:
+    - list: Lista nazw kolumn.
+    """
+    columns = ["Numer wiersza"] + [col.strip() for col in header_row.split("|") if col.strip()]
+    return columns
+
+
+def extract_rows_range(table_content, start_row, end_row):
+    """
+    Ekstrahuje zakres wierszy z zawartości tabeli.
+
+    Parametry:
+    - table_content (list): Lista zawartości tabeli.
+    - start_row (int): Indeks startowego wiersza.
+    - end_row (int): Indeks końcowego wiersza.
+
+    Zwraca:
+    - list: Zakres wierszy.
+    """
+    start_row = max(1, start_row)
+    end_row = min(end_row, len(table_content))
+    rows_range = table_content[start_row - 1:end_row]
+    return rows_range
+
+
+def filter_rows(rows_range, start_row_number, row_number_param, columns):
+    """
+    Filtruje wiersze, uwzględniając numerację i parametr `row_number_param`.
+
+    Parametry:
+    - rows_range (list): Zakres wierszy.
+    - start_row_number (int): Początkowy numer dla numeracji wierszy.
+    - row_number_param (str): Parametr do filtrowania wierszy, które mają być numerowane.
+    - columns (list): Lista nazw kolumn.
+
+    Zwraca:
+    - list: Przefiltrowane wiersze.
+    """
+    filtered_rows = []
+
+    for i, row in enumerate(rows_range, start=start_row_number):
+        values = [str(i)] + [value.strip() for value in row.split("|") if value.strip()]
+        row_data = dict(zip(columns, values))
+
+        if row_number_param is not None and row_number_param in row_data:
+            filtered_rows.append(row_data)
+        elif row_number_param is None:
+            filtered_rows.append(row_data)
+
+    return filtered_rows
+
+def create_dataframe(filtered_rows, columns):
+    """
+    Tworzy obiekt DataFrame na podstawie przefiltrowanych wierszy i nazw kolumn.
+
+    Parametry:
+    - filtered_rows (list): Przefiltrowane wiersze.
+    - columns (list): Lista nazw kolumn.
+
+    Zwraca:
+    - DataFrame: Obiekt DataFrame.
+    """
+    df = pd.DataFrame(filtered_rows, columns=columns)
+    return df
+
+def format_table(df):
+    """
+    Formatuje DataFrame jako sformatowaną tabelę.
+
+    Parametry:
+    - df (DataFrame): Obiekt DataFrame.
+
+    Zwraca:
+    - str: Sformatowana tabela.
+    """
+    return df.to_string(index=False)
 
 def extract_table_data(text, start_column=None, end_column=None, start_row=2, end_row=None,
                        start_row_number=1, row_number_param=None):
@@ -60,83 +180,23 @@ def extract_table_data(text, start_column=None, end_column=None, start_row=2, en
     lines = text.strip().split("\n")
 
     # Find the start and end indices of the table
-    table_start = None
-    table_end = None
-    
-    # Dodaj instrukcję debugowania
-    print("Szukanie początku i końca tabeli...")
-
-    for i, line in enumerate(lines):
-        if "|" in line:
-            table_start = i
-            break
-
-    for i in range(len(lines) - 1, -1, -1):
-        if "|" in lines[i]:
-            table_end = i
-            break
+    table_start, table_end = find_table_indices(lines)
 
     if table_start is None or table_end is None:
         return "Nie znaleziono tabeli."
-    
-    # Dodaj instrukcję debugowania
-    print("Początek tabeli:", table_start)
-    print("Koniec tabeli:", table_end)
 
     # Extract the table content
-    table_content = [line.strip() for line in lines[table_start:table_end + 1] if line.strip()]
+    table_content = extract_table_content(lines, table_start, table_end)
 
-    # Extract the column names from the header row
-    header_row = table_content[0]
-    columns = ["Numer wiersza"] + [col.strip() for col in header_row.split("|") if col.strip()]
+    if not table_content:
+        return "Nie znaleziono tabeli."
 
-    # Determine the start and end column indices
-    if start_column is None:
-        start_column = 1
+    columns = extract_columns(table_content[0])
+    rows_range = extract_rows_range(table_content, start_row, end_row)
+    filtered_rows = filter_rows(rows_range, start_row_number, row_number_param, columns)
+    df = create_dataframe(filtered_rows, columns)
 
-    if end_column is None:
-        end_column = len(columns)
-
-    # Determine the start and end row indices
-    if start_row is None:
-        start_row = 2
-
-    if end_row is None:
-        end_row = len(table_content)
-
-    # Validate the start and end row/column indices
-    start_row = max(1, start_row)  # Upewnij się, że start_row wynosi co najmniej 1
-    start_col = max(1, start_column)  # Upewnij się, że start_col wynosi co najmniej 1
-    end_row = min(end_row, len(table_content))  # Upewnij się, że end_row jest w zakresie tabeli
-    end_col = min(end_column, len(columns))  # Upewnij się, że end_col jest w zakresie tabeli
-
-    # Extract the specified range of rows and columns
-    rows_range = table_content[start_row - 1:end_row]
-    cols_range = columns[start_col - 1:end_col]
-
-    # Initialize an empty list to store the filtered rows
-    filtered_rows = []
-
-    # Iterate over the rows and filter out the rows without stock market symbols
-    for i, row in enumerate(rows_range, start=start_row_number):
-        values = [str(i)] + [value.strip() for value in row.split("|") if value.strip()]
-
-        # Create a dictionary mapping column names to values
-        row_data = dict(zip(cols_range, values))
-
-        # Check if the row meets the condition for row numbering
-        if row_number_param is not None and row_number_param in row_data:
-            filtered_rows.append(row_data)
-        elif row_number_param is None:
-            filtered_rows.append(row_data)
-
-    # Create a pandas DataFrame from the filtered rows
-    df = pd.DataFrame(filtered_rows)
-
-    # Return the DataFrame as a formatted table
-    return df.to_string(index=False)
-
-
+    return format_table(df)
 
 def usun_gorny_wiersz(tekst):
     linie = tekst.split('\n')
@@ -149,6 +209,8 @@ def usun_gorny_wiersz(tekst):
     return tekst_bez_gornego_wiersza
 
 def filter_response(response):
+
+    print(response)
 
     part_1 = response['choices'][0]['content'][0]
     part_2 = response['choices'][1]['content'][0]
@@ -223,7 +285,32 @@ for count in range(0, len(lines), chunk_size):
                 save_to_file(part_3, output_file_2)
                 print("Zapisano w pliku 3: ")
                 break  # Wyjście z pętli while w przypadku sukcesu
+            except IOError as e:
+                print("Wystąpił błąd wejścia-wyjścia (IO):", str(e))
+                # Dodatkowe informacje o błędzie IO
+                print("Blad: ", e.errno)
+                print("Opis błędu: ", e.strerror)
+                print("Ścieżka pliku: ", e.filename)
+                print("Ponowne próbowanie...")
+                retry_chunk = chunk[chunk.index(line):]  # Przetwarzaj linie od błędnej linii do końca fragmentu
+            except ValueError as e:
+                print("Wystąpił błąd wartości:", str(e))
+                # Dodatkowe informacje o błędzie wartości
+                print("Wartość nieprawidłowa:", e.args[0])
+                print("Ponowne próbowanie...")
+                retry_chunk = chunk[chunk.index(line):]  # Przetwarzaj linie od błędnej linii do końca fragmentu
+            except KeyError as e:
+                print("Wystąpił błąd klucza (KeyError):", str(e))
+                # Dodatkowe informacje o błędzie KeyError
+                print("Nieznany klucz:", e.args[0])
+                print("Google Bard encountered an error: n38")
+                print("Ścieżka błędu:", sys.exc_info()[2].tb_frame.f_code.co_filename)
+                print("Linia błędu:", sys.exc_info()[2].tb_lineno)
+                print("Ponowne próbowanie...")
+                retry_chunk = chunk[chunk.index(line):]  # Przetwarzaj linie od błędnej linii do końca fragmentu
             except Exception as e:
-                print("Wystąpił błąd sieci:", str(e))
+                print("Wystąpił nieznany błąd:", str(e))
+                # Dodatkowe informacje o ogólnym błędzie
+                print("Typ błędu:", type(e).__name__)
                 print("Ponowne próbowanie...")
                 retry_chunk = chunk[chunk.index(line):]  # Przetwarzaj linie od błędnej linii do końca fragmentu
